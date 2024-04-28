@@ -1,0 +1,97 @@
+<?php
+
+class FileUploader {
+    private $allowedTypes;
+    private $uploadFolder;
+    private $maxFileSize;
+    private $logFilePath;
+
+    public function __construct($allowedTypes, $uploadFolder, $maxFileSize, $logFilePath) {
+        $this->allowedTypes = $allowedTypes;
+        $this->uploadFolder = $uploadFolder;
+        $this->maxFileSize = $maxFileSize;
+        $this->logFilePath = $logFilePath;
+
+        // アップロード先のディレクトリが存在しない場合は作成する
+        if (!file_exists($uploadFolder)) {
+            mkdir($uploadFolder, 0777, true);
+        }
+    }
+
+    public function uploadFile($file) {
+        try {
+            // ファイルサイズの制限
+            if ($file['size'] > $this->maxFileSize) {
+                throw new Exception('File size exceeds the limit.');
+            }
+
+            $fileExtension = pathinfo($file['name'], PATHINFO_EXTENSION);
+            $fileMimeType = mime_content_type($file['tmp_name']);
+            
+            // MIMEタイプの検証
+            if (!isset($this->allowedTypes[$fileExtension]) || $this->allowedTypes[$fileExtension] !== $fileMimeType) {
+                throw new Exception('File type not allowed.');
+            }
+
+            // ランダムなファイル名を生成
+            $uploadedFileName = $this->generateRandomFileName($fileExtension);
+
+            // ファイルの移動
+            if (!move_uploaded_file($file['tmp_name'], $this->uploadFolder . $uploadedFileName)) {
+                throw new Exception('Failed to upload file.');
+            }
+
+            // ログにアップロード情報を記録
+            $this->logMessage("File uploaded: $uploadedFileName");
+            return ['status' => 'success', 'message' => 'File uploaded successfully.', 'file_name' => $uploadedFileName];
+        } catch (Exception $e) {
+            return ['status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    private function generateRandomFileName($extension) {
+        return bin2hex(random_bytes(8)) . '.' . $extension;
+    }
+
+    private function logMessage($message) {
+        file_put_contents($this->logFilePath, '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL, FILE_APPEND);
+    }
+}
+
+$allowedTypes = [
+    'txt' => 'text/plain',
+    'pdf' => 'application/pdf',
+    'png' => 'image/png',
+    'jpg' => 'image/jpeg',
+    'jpeg' => 'image/jpeg',
+    'gif' => 'image/gif',
+    'json' => 'application/json',
+    'html' => 'text/html',
+    'css' => 'text/css',
+    'mp3' => 'audio/mpeg',
+    'log' => 'text/plain',
+    'py' => 'text/x-python'
+];
+
+$uploadFolder = 'uploads/';
+$maxFileSize = 50 * 1024 * 1024;
+$logFilePath = 'upload_log.txt';
+
+$fileUploader = new FileUploader($allowedTypes, $uploadFolder, $maxFileSize, $logFilePath);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $result = $fileUploader->uploadFile($_FILES['file']);
+    echo json_encode($result);
+    exit;
+} elseif ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'list-files') {
+    $files = [];
+    foreach (new DirectoryIterator($uploadFolder) as $fileInfo) {
+        if ($fileInfo->isFile()) {
+            $files[] = $fileInfo->getFilename();
+        }
+    }
+    echo json_encode(['files' => $files]);
+    exit;
+}
+
+?>
